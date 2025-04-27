@@ -8,6 +8,12 @@ import ThemeToggle from './ThemeToggle'
 import Image from 'next/image'
 import { WEBSITE_NAME } from '@/lib/types'
 import { mainNavLinks } from '@/app/data/navigation'
+import { Alfa_Slab_One } from 'next/font/google'
+
+const alfaSlabOne = Alfa_Slab_One({
+  weight: '400',
+  subsets: ['latin'],
+})
 
 // Define types for navigation links
 interface NavLink {
@@ -209,7 +215,7 @@ export default function Navbar(): React.JSX.Element {
         <div className="flex flex-1 justify-start">
           <Link
             href="/"
-            className="flex items-center text-xl font-semibold tracking-wide md:text-2xl"
+            className={`${alfaSlabOne.className} flex items-center text-xl font-semibold tracking-wide md:text-2xl`}
             aria-label={`${WEBSITE_NAME} homepage`}
           >
             <Image

@@ -8,23 +8,89 @@ interface Counts {
   charactersNoSpaces: number
   sentences: number
   paragraphs: number
+  syllables: number // Estimated
   readingTime: string // Based on adjusted word count
   speakingTime: string // Based on adjusted word count
   avgWordLength: number // Adjusted for exclusions
   longestWords: string[] // Adjusted for exclusions
   wordFrequency: { word: string; count: number }[] // Adjusted for exclusions
-  fleschReadingEase: { score: string; avgSentenceLength: number } // Based on original sentence/word count
+  fleschReadingEase: { score: number | string; avgSentenceLength: number } // Based on original text, full formula now
+}
+
+// Heuristic Syllable Counter (Estimation)
+const countSyllablesHeuristic = (word: string): number => {
+  if (!word) return 0
+  word = word.toLowerCase().trim()
+  if (word.length <= 3) return 1 // Short words are usually 1 syllable
+
+  // Remove silent 'e' at the end, but not if it's the only vowel (e.g., "the")
+  if (
+    word.endsWith('e') &&
+    !word.endsWith('le') &&
+    /[aeiouy]/.test(word.slice(0, -1))
+  ) {
+    word = word.slice(0, -1)
+  }
+  // Handle 'le' ending (e.g., table, subtle)
+  if (
+    word.endsWith('le') &&
+    word.length > 2 &&
+    !/[aeiouy]/.test(word.charAt(word.length - 3))
+  ) {
+    // Add syllable for 'le' unless preceded by a vowel
+  } else if (
+    word.endsWith('le') &&
+    word.length > 2 &&
+    /[aeiouy]/.test(word.charAt(word.length - 3))
+  ) {
+    // if preceded by vowel, the 'e' in 'le' might be silent (e.g. 'whale'), handled by vowel group count
+  } else if (word.endsWith('e')) {
+    // Don't remove 'e' if it's part of 'le' or the only vowel
+  }
+
+  // Count vowel groups (sequences of vowels)
+  const vowelGroups = word.match(/[aeiouy]+/g)
+  let syllableCount = vowelGroups ? vowelGroups.length : 0
+
+  // Adjust for common exceptions/patterns (very basic)
+  if (word.endsWith('es') || word.endsWith('ed')) {
+    // Might incorrectly subtract for words like "needed"
+    if (vowelGroups && vowelGroups.length > 1) {
+      // Check if the base word (without es/ed) ends in e already handled
+      const baseWord = word.replace(/(es|ed)$/, '')
+      if (
+        baseWord.endsWith('e') &&
+        !baseWord.endsWith('le') &&
+        /[aeiouy]/.test(baseWord.slice(0, -1))
+      ) {
+        // already handled the 'e'
+      } else if (syllableCount > 1) {
+        // syllableCount--; // This is often too aggressive
+      }
+    }
+  }
+  // Handle 'le' ending contributing a syllable if preceded by consonant
+  if (
+    word.endsWith('le') &&
+    word.length > 2 &&
+    !/[aeiouy]/.test(word.charAt(word.length - 3))
+  ) {
+    syllableCount++
+  }
+
+  return Math.max(1, syllableCount) // Ensure at least 1 syllable
 }
 
 const WordCounter: React.FC = () => {
   const [text, setText] = useState<string>('')
-  const [excludedWordsInput, setExcludedWordsInput] = useState<string>('') // Input for excluded words
+  const [excludedWordsInput, setExcludedWordsInput] = useState<string>('')
   const [counts, setCounts] = useState<Counts>({
     words: 0,
     characters: 0,
     charactersNoSpaces: 0,
     sentences: 0,
     paragraphs: 0,
+    syllables: 0, // Added
     readingTime: '0 min 0 sec',
     speakingTime: '0 min 0 sec',
     avgWordLength: 0,
@@ -84,19 +150,20 @@ const WordCounter: React.FC = () => {
 
   const calculateFleschReadingEase = (
     totalWords: number,
-    totalSentences: number
-  ): string => {
-    if (totalWords === 0 || totalSentences === 0) {
+    totalSentences: number,
+    totalSyllables: number
+  ): number | string => {
+    if (totalWords === 0 || totalSentences === 0 || totalSyllables === 0) {
       return 'N/A'
     }
-    const avgSentenceLength = totalWords / totalSentences
-    // Note: Accurate syllable counting (ASW) is complex without a library.
+    const avgSentenceLength = totalWords / totalSentences // ASL
+    const avgSyllablesPerWord = totalSyllables / totalWords // ASW
+
     // Formula: 206.835 - 1.015 * ASL - 84.6 * ASW
-    // We calculate a partial score based only on ASL.
-    const partialScore = 206.835 - 1.015 * avgSentenceLength
-    const roundedScore = Math.round(partialScore * 10) / 10
-    // Return partial score and indicate it's incomplete
-    return `${roundedScore} (Needs Syllables)`
+    const score =
+      206.835 - 1.015 * avgSentenceLength - 84.6 * avgSyllablesPerWord
+
+    return Math.round(score * 10) / 10 // Return rounded score
   }
 
   const updateCounts = useCallback(
@@ -119,6 +186,12 @@ const WordCounter: React.FC = () => {
           ? 0
           : trimmedText.split(/\n\s*\n/).filter((p) => p.trim().length > 0)
               .length
+
+      // Calculate total syllables (estimated) from original words
+      const syllables = originalWordList.reduce(
+        (acc, word) => acc + countSyllablesHeuristic(word),
+        0
+      )
 
       // Parse excluded words (comma or space separated, case-insensitive)
       const excludedWordsSet = new Set(
@@ -157,7 +230,8 @@ const WordCounter: React.FC = () => {
           : 0
       const fleschScore = calculateFleschReadingEase(
         originalWordCount,
-        sentences
+        sentences,
+        syllables
       )
 
       setCounts({
@@ -166,12 +240,13 @@ const WordCounter: React.FC = () => {
         charactersNoSpaces,
         sentences,
         paragraphs,
+        syllables, // Added estimated syllable count
         readingTime: formatTime(readingTimeSeconds), // Filtered
         speakingTime: formatTime(speakingTimeSeconds), // Filtered
         avgWordLength, // Filtered
         longestWords, // Filtered
         wordFrequency, // Filtered
-        fleschReadingEase: { score: fleschScore, avgSentenceLength }, // Original
+        fleschReadingEase: { score: fleschScore, avgSentenceLength }, // Uses full calculation
       })
     },
     []
@@ -359,6 +434,12 @@ const WordCounter: React.FC = () => {
           </p>
           <p className="text-sm text-gray-600 dark:text-gray-300">Paragraphs</p>
         </div>
+        <div className="rounded-lg bg-gray-100 p-4 shadow dark:bg-gray-700">
+          <p className="text-2xl font-semibold text-blue-600 dark:text-blue-400">
+            {counts.syllables}
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-300">Syllables</p>
+        </div>
       </div>
 
       {/* Advanced Stats Grid (Adjusted by Exclusions) */}
@@ -461,13 +542,13 @@ const WordCounter: React.FC = () => {
               Flesch Reading Ease
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              (Needs Syllable Count)
+              (Score Estimated)
             </p>
           </div>
         </div>
         <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-          Note: Full readability scores require syllable analysis, which is not
-          implemented here.
+          Note: Syllable count uses a basic estimation and may affect
+          readability score accuracy.
         </p>
       </div>
     </div>
